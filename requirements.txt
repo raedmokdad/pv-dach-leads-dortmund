@@ -1,0 +1,8 @@
+geopandas
+pyarrow
+shapely
+fiona
+duckdb
+pandas
+osmnx
+requests
