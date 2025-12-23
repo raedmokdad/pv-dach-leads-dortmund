@@ -53,12 +53,54 @@ def normalize_alkis(input_path: Path) -> Path:
 
     return output_path
 
+
+def find_latest_alkis_file() -> Path:
+    """Findet die neueste ALKIS-Datei in raw/dortmund/alkis_buildings/"""
+    alkis_dir = RAW_DORTMUND / "alkis_buildings"
+    
+    if not alkis_dir.exists():
+        raise FileNotFoundError(f"Kein ALKIS-Ordner gefunden: {alkis_dir}")
+    
+    # Alle GeoJSON/GPKG/SHP Dateien finden
+    files = []
+    for pattern in ['**/*.geojson', '**/*.gpkg', '**/*.shp']:
+        files.extend(alkis_dir.glob(pattern))
+    
+    if not files:
+        raise FileNotFoundError(f"Keine ALKIS-Dateien in {alkis_dir}")
+    
+    # Neueste Datei (nach Änderungsdatum)
+    latest = max(files, key=lambda p: p.stat().st_mtime)
+    return latest
+        
+
+
+
      
     
     
     
 if __name__ == "__main__":
-    pfad = RAW_DORTMUND / "alkis_buildings" / "20251222" / "liegenschaftskataster-gebaude-bauwerke.geojson"
-    normalize_alkis(pfad)
+    parser = argparse.ArgumentParser(
+        description="ALKIS-Daten normalisieren (GeoJSON → GeoParquet)"
+    )
+    parser.add_argument(
+        "--input",
+        type=Path,
+        help="Pfad zur ALKIS-Datei (falls nicht angegeben: automatisch neueste)"
+    )
+    
+    args = parser.parse_args()
+    
+    # Input-Datei bestimmen
+    if args.input:
+        input_path = args.input
+    else:
+        print("🔍 Suche neueste ALKIS-Datei...")
+        input_path = find_latest_alkis_file()
+        print(f"   Gefunden: {input_path}")
+    
+    # Normalisierung ausführen
+    normalize_alkis(input_path)
 
    
