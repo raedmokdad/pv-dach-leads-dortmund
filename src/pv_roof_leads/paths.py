@@ -6,6 +6,8 @@ RAW_DORTMUND = DATA / "raw" / "dortmund"
 STAGING_DORTMUND = DATA / "staging" / "dortmund"
 CURATED_DORTMUND = DATA / "curated" / "dortmund"
 EXPORTS_DORTMUND = DATA / "exports" / "dortmund"
+PROCESSED_DORTMUND = DATA / "processed" / "dortmund"  
+
 
 
 def ensure_dirs() -> None:
@@ -16,6 +18,7 @@ def ensure_dirs() -> None:
         STAGING_DORTMUND,
         CURATED_DORTMUND,
         EXPORTS_DORTMUND,
+        PROCESSED_DORTMUND
     ]
     for p in paths:
         p.mkdir(parents = True, exist_ok = True)

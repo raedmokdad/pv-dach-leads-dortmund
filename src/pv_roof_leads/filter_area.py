@@ -50,7 +50,7 @@ def filter_by_area(min_area_m2: float = MIN_FOOTPRINT_AREA_M2) -> Path:
     
     print(f"Speichere nach {output_path}")
     gdf_output = gdf.drop(columns=['geometry'])
-    gdf_output.to_parquet(output_path)    
+    gdf_output.to_parquet(output_path)   
     
     file_size_mb = output_path.stat().st_size / (1024 * 1024)
     print(f"Fertig! {nach_filter} Kandidaten, {file_size_mb:.1f} MB gespeichert")
