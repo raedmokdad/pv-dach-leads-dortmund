@@ -2,7 +2,6 @@
 data/
 cache/
 backup_wichtig/
-deploy/
 
 # Python
 .venv/
