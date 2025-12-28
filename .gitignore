@@ -1,15 +1,21 @@
+# Daten & Cache
 data/
-.venv/
-.env
-*.log
+cache/
+backup_wichtig/
+deploy/
 
 # Python
+.venv/
 __pycache__/
 *.pyc
 *.pyo
 *.egg-info/
 dist/
 build/
+
+# Umgebung
+.env
+*.log
 
 # IDEs
 .vscode/
@@ -18,3 +24,4 @@ build/
 
 # OS
 .DS_Store
+Thumbs.db

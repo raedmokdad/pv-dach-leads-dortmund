@@ -57,13 +57,6 @@ def calculate_foot_print_area(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
 def filter_by_area(gdf: gpd.GeoDataFrame, min_area: float = MIN_FOOTPRINT_AREA_M2) -> gpd.GeoDataFrame:
     """
     Filtert Gebäude nach Mindestfläche (≥ 500m² aus config).
-    
-    Args:
-        gdf: GeoDataFrame mit 'footprint_area_m2'
-        min_area: Mindestfläche in m²
-        
-    Returns:
-        Gefiltertes GeoDataFrame
     """
     before = len(gdf)
     gdf = gdf[gdf['footprint_area_m2'] >= min_area].copy()

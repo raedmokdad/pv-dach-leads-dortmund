@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PV-Dach Gebäude Report - Dortmund</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        {{CSS_CONTENT}}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>PV-Dach Gebäude Report</h1>
+            <p>Dortmund - Erstellt am {{CURRENT_DATE}}</p>
+        </div>
+        
+        <div class="stats">
+            <div class="stat-card">
+                <h3>{{TOTAL_BUILDINGS}}</h3>
+                <p>Gebäude gesamt</p>
+            </div>
+            <div class="stat-card">
+                <h3>{{WITHOUT_PV}}</h3>
+                <p>Ohne PV-Anlage</p>
+            </div>
+            <div class="stat-card">
+                <h3>{{WITH_PV}}</h3>
+                <p>Mit PV-Anlage</p>
+            </div>
+            <div class="stat-card">
+                <h3>{{BUILDINGS_WITH_AGE}}</h3>
+                <p>Mit Altersangabe</p>
+            </div>
+            <div class="stat-card">
+                <h3>{{AVG_AREA}} m²</h3>
+                <p>Durchschnittliche Fläche</p>
+            </div>
+        </div>
+        
+        <div class="filters">
+            <h2>Filter</h2>
+            
+            <div class="filter-group">
+                <div class="filter-item">
+                    <label for="minArea">Fläche von (m²):</label>
+                    <input type="number" id="minArea" value="{{MIN_AREA}}" min="0" step="50">
+                </div>
+                
+                <div class="filter-item">
+                    <label for="maxArea">Fläche bis (m²):</label>
+                    <input type="number" id="maxArea" value="{{MAX_AREA}}" min="0" step="50">
+                </div>
+                
+                <div class="filter-item">
+                    <label for="minYield">Min. Jahresertrag (kWh):</label>
+                    <input type="number" id="minYield" value="0" min="0" step="1000">
+                </div>
+                
+                <div class="filter-item">
+                    <label for="minPanels">Min. Panels:</label>
+                    <input type="number" id="minPanels" value="0" min="0" step="10">
+                </div>
+                
+                <div class="filter-item">
+                    <label>PV-Anlage:</label>
+                    <div class="pv-filter">
+                        <label><input type="checkbox" id="filterPvYes" checked><span>Ja</span></label>
+                        <label><input type="checkbox" id="filterPvNo" checked><span>Nein</span></label>
+                    </div>
+                </div>
+                
+                <div class="filter-item">
+                    <label>Altersangabe:</label>
+                    <div class="pv-filter">
+                        <label><input type="checkbox" id="filterAgeYes" checked><span>Ja</span></label>
+                        <label><input type="checkbox" id="filterAgeNo" checked><span>Nein</span></label>
+                    </div>
+                </div>
+            </div>
+            
+            <button onclick="applyFilters()">Filter anwenden</button>
+            <button onclick="resetFilters()">Filter zurücksetzen</button>
+        </div>
+        
+        <div class="results-info" id="resultsInfo">
+            Zeige <strong id="resultCount">{{TOTAL_BUILDINGS}}</strong> von <strong>{{TOTAL_BUILDINGS}}</strong> Gebäuden
+        </div>
+        
+        <div class="buildings-grid" id="buildingsGrid">
+        </div>
+        
+        <div id="loadMoreContainer" style="text-align: center; margin: 30px 0;">
+            <button id="loadMoreBtn" onclick="loadMore()" style="
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                border: none;
+                padding: 15px 40px;
+                font-size: 16px;
+                font-weight: 600;
+                border-radius: 10px;
+                cursor: pointer;
+                box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+                transition: transform 0.2s, box-shadow 0.2s;
+            " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(102, 126, 234, 0.5)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 15px rgba(102, 126, 234, 0.4)';">
+                ▼ Mehr laden
+            </button>
+            <div id="loadingInfo" style="margin-top: 10px; color: #666; font-size: 14px;"></div>
+        </div>
+        
+        <div id="noResults" class="no-results" style="display: none;">
+            Keine Gebäude gefunden, die den Filterkriterien entsprechen.
+        </div>
+        
+        <div class="footer">
+            <p>© 2025 PV-Dach Leads Dortmund | Generiert mit Python & GeoPandas</p>
+        </div>
+    </div>
+    
+    <script>
+        // Initialize data
+        const allBuildings = {{BUILDINGS_JSON}};
+        // Segments will be loaded on demand from external file
+        let roofSegmentsData = {};
+        
+        // Load script content first
+        {{SCRIPT_CONTENT}}
+        
+        // Initialize report after page is fully loaded
+        window.addEventListener('load', function() {
+            console.log('Page loaded, initializing report...');
+            console.log('Buildings count:', allBuildings ? allBuildings.length : 0);
+            try {
+                initializeReport(allBuildings, roofSegmentsData);
+                // Load segments in background
+                fetch('roof_segments.json')
+                    .then(response => response.json())
+                    .then(data => {
+                        roofSegmentsData = data;
+                        console.log('Roof segments loaded:', Object.keys(data).length);
+                    })
+                    .catch(e => console.log('Segments not loaded (optional):', e));
+            } catch (e) {
+                console.error('Error initializing report:', e);
+                document.getElementById('buildingsGrid').innerHTML = '<div style="color:red;padding:20px;">Fehler beim Laden: ' + e.message + '</div>';
+            }
+        });
+    </script>
+</body>
+</html>
+

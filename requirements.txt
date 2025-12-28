@@ -1,8 +1,21 @@
-geopandas
-pyarrow
-shapely
-fiona
-duckdb
-pandas
-osmnx
-requests
+# Geo-Datenverarbeitung
+geopandas>=0.14.0
+shapely>=2.0.0
+fiona>=1.9.0
+pyproj>=3.6.0
+
+# Daten
+pandas>=2.0.0
+pyarrow>=14.0.0
+duckdb>=0.9.0
+
+# OSM & Netzwerk
+osmnx>=1.6.0
+requests>=2.31.0
+
+# Umgebung
+python-dotenv>=1.0.0
+
+# Report-Erstellung
+folium>=0.15.0
+weasyprint>=60.0
