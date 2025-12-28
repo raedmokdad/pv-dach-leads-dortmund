@@ -1,10 +1,17 @@
 {
-  "name": "pv-dach-report",
+  "name": "pv-dach-leads-report",
   "version": "1.0.0",
+  "description": "PV-Dach Leads Report für Dortmund",
+  "main": "server.js",
   "scripts": {
-    "start": "serve -s . -l $PORT"
+    "start": "node server.js",
+    "dev": "npx serve"
   },
   "dependencies": {
-    "serve": "^14.2.0"
+    "express": "^4.18.2",
+    "compression": "^1.7.4"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
