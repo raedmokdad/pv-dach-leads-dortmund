@@ -71,11 +71,17 @@ def create_filtered_report():
     buildings['footprint_area_m2'] = buildings['footprint_area_m2'].fillna(0)
     buildings['name'] = buildings['name'].fillna('Unbekannt')
     
-    # Load Google Solar detailed data
+    # Load Google Solar detailed data (prefer extended data)
+    extended_file = FINAL_DORTMUND / "roof_segments_extended.json"
     preprocessed_file = PROCESSED_DORTMUND / "roof_segments_summary.json"
     google_solar_details = {}
     
-    if preprocessed_file.exists():
+    if extended_file.exists():
+        print(f"\nLade erweiterte Dach-Segment-Daten...")
+        with open(extended_file, 'r', encoding='utf-8') as f:
+            google_solar_details = json.load(f)
+        print(f"[OK] {len(google_solar_details)} Gebäude mit erweiterten Dach-Segmenten geladen")
+    elif preprocessed_file.exists():
         print(f"\nLade vorverarbeitete Dach-Segment-Daten...")
         with open(preprocessed_file, 'r', encoding='utf-8') as f:
             google_solar_details = json.load(f)
@@ -194,7 +200,7 @@ def prepare_buildings_data(buildings_gdf, google_solar_details, luftbilder_map):
             'google_solar_best_pitch': float(safe_val(row.get('google_solar_best_pitch'), 0)),
             'google_solar_sunshine_hours': float(safe_val(row.get('google_solar_sunshine_hours'), 0)),
             'google_solar_co2_offset_kg': float(safe_val(row.get('google_solar_co2_offset_kg'), 0)),
-            # Roof segments
+            # Roof segments (extended)
             'has_roof_segments': has_segments,
             'segment_count': len(segment_info.get('segments', [])),
             'main_roof_pitch': segment_info.get('main_pitch', 0),
@@ -202,6 +208,9 @@ def prepare_buildings_data(buildings_gdf, google_solar_details, luftbilder_map):
             'main_roof_area': segment_info.get('main_area', 0),
             'segments': segment_info.get('segments', []),
             'imagery_quality': segment_info.get('imageryQuality', ''),
+            'usable_roof_pct': segment_info.get('usable_pct', 0),
+            'total_panels': segment_info.get('total_panels', 0),
+            'configs': segment_info.get('configs', []),
             'image': image_file,
         }
         buildings_data.append(building_data)
@@ -434,6 +443,43 @@ def generate_html(buildings_json, total_buildings, with_pv, without_pv, avg_area
         .quality-HIGH {{ background: #dcfce7; color: #166534; }}
         .quality-MEDIUM {{ background: #fef3c7; color: #92400e; }}
         .quality-LOW {{ background: #fee2e2; color: #991b1b; }}
+        .shading-bar {{
+            width: 80px;
+            height: 8px;
+            background: #e5e7eb;
+            border-radius: 4px;
+            overflow: hidden;
+            display: inline-block;
+            vertical-align: middle;
+            margin-left: 5px;
+        }}
+        .shading-fill {{
+            height: 100%;
+            border-radius: 4px;
+        }}
+        .shading-good {{ background: linear-gradient(90deg, #22c55e, #16a34a); }}
+        .shading-medium {{ background: linear-gradient(90deg, #eab308, #ca8a04); }}
+        .shading-poor {{ background: linear-gradient(90deg, #ef4444, #dc2626); }}
+        .configs-list {{
+            margin-top: 10px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }}
+        .config-item {{
+            background: #f0f9ff;
+            border: 1px solid #0ea5e9;
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-size: 0.8em;
+        }}
+        .config-item strong {{ color: #0369a1; }}
+        .segment-extended {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 5px;
+            margin-top: 5px;
+        }}
     </style>
 </head>
 <body>
@@ -663,23 +709,83 @@ def generate_html(buildings_json, total_buildings, with_pv, without_pv, avg_area
             }}
             
             let roofInfo = '';
-            if (b.has_roof_segments && b.main_roof_pitch > 0) {{
+            if (b.has_roof_segments && b.segments && b.segments.length > 0) {{
                 const qualityClass = b.imagery_quality ? 'quality-' + b.imagery_quality : '';
                 const qualityBadge = b.imagery_quality ? `<span class="quality-badge ${{qualityClass}}">${{b.imagery_quality}}</span>` : '';
                 
+                // Erweiterte Segment-Liste mit Verschattung und Sonnenstunden
                 let segmentsList = '';
                 if (b.segments && b.segments.length > 0) {{
-                    segmentsList = b.segments.map((seg, idx) => `
-                        <div class="segment-item">
-                            <span>Segment ${{idx + 1}}</span>
-                            <div class="segment-info">
-                                <span><span class="segment-label">Neigung:</span> ${{seg.pitch}}°</span>
-                                <span><span class="segment-label">Richtung:</span> ${{seg.azimuth}}° (${{getDirection(seg.azimuth)}})</span>
-                                <span><span class="segment-label">Fläche:</span> ${{seg.area}} m²</span>
+                    segmentsList = b.segments.map((seg, idx) => {{
+                        const shading = seg.shading || 0;
+                        const shadingPct = Math.round(shading * 100);
+                        const shadingClass = shading >= 0.9 ? 'shading-good' : (shading >= 0.7 ? 'shading-medium' : 'shading-poor');
+                        const panels = seg.panels || 0;
+                        const yearlyKwh = seg.yearly_kwh || 0;
+                        const orientation = seg.orientation || getDirection(seg.azimuth);
+                        
+                        return `
+                            <div class="segment-item" style="flex-direction: column; align-items: flex-start;">
+                                <div style="display: flex; justify-content: space-between; width: 100%; margin-bottom: 5px;">
+                                    <strong>Segment ${{idx + 1}}: ${{orientation}}</strong>
+                                    <span>${{seg.area_m2 || seg.area}} m²</span>
+                                </div>
+                                <div class="segment-extended">
+                                    <span><span class="segment-label">Neigung:</span> ${{seg.pitch}}°</span>
+                                    <span><span class="segment-label">Azimut:</span> ${{seg.azimuth}}°</span>
+                                    <span><span class="segment-label">Panels:</span> ${{panels}}</span>
+                                    <span><span class="segment-label">Ertrag:</span> ${{Math.round(yearlyKwh).toLocaleString('de-DE')}} kWh</span>
+                                    <span>
+                                        <span class="segment-label">Besonnung:</span> ${{shadingPct}}%
+                                        <div class="shading-bar"><div class="shading-fill ${{shadingClass}}" style="width: ${{shadingPct}}%"></div></div>
+                                    </span>
+                                    ${{seg.sunshine_min ? `<span><span class="segment-label">☀️ Min/Max:</span> ${{Math.round(seg.sunshine_min)}}-${{Math.round(seg.sunshine_max)}} h</span>` : ''}}
+                                </div>
                             </div>
+                        `;
+                    }}).join('');
+                }}
+                
+                // Panel-Konfigurationen anzeigen
+                let configsHtml = '';
+                if (b.configs && b.configs.length > 0) {{
+                    const configItems = b.configs.slice(0, 5).map(c => `
+                        <div class="config-item">
+                            <strong>${{c.panels_count}} Panels</strong> → ${{Math.round(c.yearly_energy_kwh).toLocaleString('de-DE')}} kWh/Jahr
                         </div>
                     `).join('');
+                    configsHtml = `
+                        <div class="section-title">⚡ Anlagen-Konfigurationen</div>
+                        <div class="configs-list">${{configItems}}</div>
+                    `;
                 }}
+                
+                roofInfo = `
+                    <div class="section-title">🏠 Dach-Analyse ${{qualityBadge}}</div>
+                    ${{b.usable_roof_pct ? `
+                    <div class="detail-row">
+                        <span class="detail-label">Nutzbare Dachfläche</span>
+                        <span class="detail-value">${{b.usable_roof_pct.toFixed(1)}}%</span>
+                    </div>` : ''}}
+                    <div class="detail-row">
+                        <span class="detail-label">Dachsegmente</span>
+                        <span class="detail-value">${{b.segment_count}}</span>
+                    </div>
+                    ${{b.total_panels ? `
+                    <div class="detail-row">
+                        <span class="detail-label">Max. Panels (alle Segmente)</span>
+                        <span class="detail-value">${{b.total_panels}} (≈ ${{(b.total_panels * 0.4).toFixed(1)}} kWp)</span>
+                    </div>` : ''}}
+                    ${{b.segments && b.segments.length > 0 ? `
+                        <button class="segments-toggle" onclick="toggleSegments(this)">📊 Alle ${{b.segment_count}} Segmente anzeigen</button>
+                        <div class="segments-list">${{segmentsList}}</div>
+                    ` : ''}}
+                    ${{configsHtml}}
+                `;
+            }} else if (b.has_roof_segments && b.main_roof_pitch > 0) {{
+                // Fallback für alte Daten ohne erweiterte Segmente
+                const qualityClass = b.imagery_quality ? 'quality-' + b.imagery_quality : '';
+                const qualityBadge = b.imagery_quality ? `<span class="quality-badge ${{qualityClass}}">${{b.imagery_quality}}</span>` : '';
                 
                 roofInfo = `
                     <div class="section-title">Dach-Info ${{qualityBadge}}</div>
@@ -695,14 +801,6 @@ def generate_html(buildings_json, total_buildings, with_pv, without_pv, avg_area
                         <span class="detail-label">Hauptdach</span>
                         <span class="detail-value">${{b.main_roof_area}} m²</span>
                     </div>
-                    <div class="detail-row">
-                        <span class="detail-label">Segmente</span>
-                        <span class="detail-value">${{b.segment_count}}</span>
-                    </div>
-                    ${{b.segments && b.segments.length > 0 ? `
-                        <button class="segments-toggle" onclick="toggleSegments(this)">Alle ${{b.segment_count}} Segmente anzeigen</button>
-                        <div class="segments-list">${{segmentsList}}</div>
-                    ` : ''}}
                 `;
             }}
             

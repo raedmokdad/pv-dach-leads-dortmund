@@ -39,6 +39,18 @@ class RoofSegment:
     area_m2: float
     yearly_energy_kwh: float
     panels_count: int
+    # Neu: Verschattungsdaten
+    sunshine_hours_min: float = 0  # Minimale Sonnenstunden (verschattete Bereiche)
+    sunshine_hours_max: float = 0  # Maximale Sonnenstunden
+    sunshine_hours_median: float = 0  # Median Sonnenstunden
+    segment_index: int = 0  # Index für Referenz
+    
+    @property
+    def shading_factor(self) -> float:
+        """Verschattungsfaktor: 1.0 = keine Verschattung, 0.0 = komplett verschattet."""
+        if self.sunshine_hours_max == 0:
+            return 1.0
+        return self.sunshine_hours_median / self.sunshine_hours_max
     
     @property
     def orientation_name(self) -> str:
@@ -82,6 +94,21 @@ class SolarPotential:
     # API Metadaten
     image_date: str  # Datum der Luftaufnahme
     data_quality: str  # "HIGH", "MEDIUM", "LOW"
+    
+    # NEU: Panel-Konfigurationen (verschiedene Anlagengrößen)
+    solar_panel_configs: List[Dict[str, Any]] = None
+    
+    # NEU: Financial Analyses (Wirtschaftlichkeitsberechnungen)
+    financial_analyses: List[Dict[str, Any]] = None
+    
+    # NEU: Panel-Spezifikationen
+    panel_capacity_watts: int = 400
+    panel_height_m: float = 1.65
+    panel_width_m: float = 0.99
+    
+    # NEU: Nutzbare vs. Gesamtdachfläche
+    total_roof_area_m2: float = 0  # Gesamte Dachfläche
+    usable_roof_percentage: float = 0  # Prozent nutzbar (Hinweis auf Hindernisse)
     
 
 class GoogleSolarAPI:
@@ -185,19 +212,32 @@ class GoogleSolarAPI:
         try:
             solar_potential = data.get("solarPotential", {})
             
-            # Dach-Segmente extrahieren
+            # Dach-Segmente extrahieren mit allen verfügbaren Daten
             roof_segments = []
-            for segment_data in solar_potential.get("roofSegmentStats", []):
+            for idx, segment_data in enumerate(solar_potential.get("roofSegmentStats", [])):
+                stats = segment_data.get("stats", {})
+                sunshine_quantiles = stats.get("sunshineQuantiles", [0] * 12)
+                
                 segment = RoofSegment(
                     center_lat=segment_data.get("center", {}).get("latitude", 0),
                     center_lon=segment_data.get("center", {}).get("longitude", 0),
                     azimuth_degrees=segment_data.get("azimuthDegrees", 0),
                     pitch_degrees=segment_data.get("pitchDegrees", 0),
-                    area_m2=segment_data.get("stats", {}).get("areaMeters2", 0),
-                    yearly_energy_kwh=segment_data.get("stats", {}).get("sunshineQuantiles", [0])[5] if segment_data.get("stats", {}).get("sunshineQuantiles") else 0,
-                    panels_count=segment_data.get("panelsCount", 0)
+                    area_m2=stats.get("areaMeters2", 0),
+                    yearly_energy_kwh=sunshine_quantiles[5] if len(sunshine_quantiles) > 5 else 0,  # Median
+                    panels_count=segment_data.get("panelsCount", 0),
+                    # NEU: Verschattungsdaten
+                    sunshine_hours_min=sunshine_quantiles[0] if len(sunshine_quantiles) > 0 else 0,
+                    sunshine_hours_max=sunshine_quantiles[-1] if sunshine_quantiles else 0,
+                    sunshine_hours_median=sunshine_quantiles[5] if len(sunshine_quantiles) > 5 else 0,
+                    segment_index=idx
                 )
                 roof_segments.append(segment)
+            
+            # Gesamte Dachfläche berechnen (alle Segmente)
+            total_roof_area = sum(s.area_m2 for s in roof_segments)
+            usable_area = solar_potential.get("maxArrayAreaMeters2", 0)
+            usable_percentage = (usable_area / total_roof_area * 100) if total_roof_area > 0 else 0
             
             # Beste Konfiguration (ganzes Dach)
             max_array_config = solar_potential.get("maxArrayPanelsCount", 0)
@@ -212,6 +252,26 @@ class GoogleSolarAPI:
                         "roof_area_m2": config.get("roofSegmentSummaries", [{}])[0].get("pitchedAreaMeters2", 0) if config.get("roofSegmentSummaries") else 0,
                     }
                     break
+            # Panel-Konfigurationen (verschiedene Anlagengrößen)
+            solar_panel_configs = []
+            for config in solar_potential.get("solarPanelConfigs", []):
+                solar_panel_configs.append({
+                    "panels_count": config.get("panelsCount", 0),
+                    "yearly_energy_kwh": config.get("yearlyEnergyDcKwh", 0),
+                    "segments_used": len(config.get("roofSegmentSummaries", [])),
+                })
+            
+            # Financial Analyses (Wirtschaftlichkeit) - falls verfügbar
+            financial_analyses = []
+            for analysis in data.get("financialAnalyses", []):
+                financial_analyses.append({
+                    "monthly_bill": analysis.get("monthlyBill", {}).get("units", 0),
+                    "panel_config_index": analysis.get("panelConfigIndex", 0),
+                    "financial_details": analysis.get("financialDetails", {}),
+                    "leasing_savings": analysis.get("leasingSavings", {}),
+                    "cash_purchase_savings": analysis.get("cashPurchaseSavings", {}),
+                    "financed_purchase_savings": analysis.get("financedPurchaseSavings", {}),
+                })
             
             potential = SolarPotential(
                 building_id=building_id,
@@ -223,7 +283,15 @@ class GoogleSolarAPI:
                 roof_segments=roof_segments,
                 max_array_efficiency=solar_potential.get("panelCapacityWatts", 400) / 1000,  # kW
                 image_date=data.get("imageryDate", {}).get("year", "unknown"),
-                data_quality=data.get("imageryQuality", "UNKNOWN")
+                data_quality=data.get("imageryQuality", "UNKNOWN"),
+                # NEU: Zusätzliche Daten
+                solar_panel_configs=solar_panel_configs,
+                financial_analyses=financial_analyses,
+                panel_capacity_watts=solar_potential.get("panelCapacityWatts", 400),
+                panel_height_m=solar_potential.get("panelHeightMeters", 1.65),
+                panel_width_m=solar_potential.get("panelWidthMeters", 0.99),
+                total_roof_area_m2=total_roof_area,
+                usable_roof_percentage=usable_percentage
             )
             
             return potential
@@ -254,10 +322,16 @@ class GoogleSolarAPI:
             shape = shapely.geometry.shape(geom)
             centroid = shape.centroid
             
-            # Transformiere von UTM (EPSG:25832) zu WGS84 (EPSG:4326)
-            # UTM coordinates -> lat/lon
-            transformer = Transformer.from_crs("EPSG:25832", "EPSG:4326", always_xy=True)
-            lon, lat = transformer.transform(centroid.x, centroid.y)
+            # Koordinaten direkt aus Centroid (bereits WGS84 wenn vorher transformiert)
+            lon, lat = centroid.x, centroid.y
+            
+            # Prüfe ob Koordinaten schon WGS84 sind (lon/lat) oder UTM
+            # WGS84: lon ~5-15, lat ~47-55 (Deutschland)
+            # UTM Zone 32N: x ~300000-700000, y ~5500000-6100000
+            if centroid.x > 100000:  # Definitiv UTM-Koordinaten
+                # Transformiere von UTM (EPSG:25832) zu WGS84 (EPSG:4326)
+                transformer = Transformer.from_crs("EPSG:25832", "EPSG:4326", always_xy=True)
+                lon, lat = transformer.transform(centroid.x, centroid.y)
             
             # Validiere Koordinaten (Deutschland: ~47-55°N, 5-15°E)
             if not (5 <= lon <= 15 and 47 <= lat <= 55):
@@ -299,12 +373,45 @@ class GoogleSolarAPI:
         props["google_solar_image_date"] = potential.image_date
         props["google_solar_data_quality"] = potential.data_quality
         
+        # NEU: Zusätzliche wichtige Daten
+        props["google_solar_panel_capacity_w"] = potential.panel_capacity_watts
+        props["google_solar_total_roof_area_m2"] = potential.total_roof_area_m2
+        props["google_solar_usable_roof_pct"] = round(potential.usable_roof_percentage, 1)
+        
         # Bestes Segment (höchste Energie)
         if potential.roof_segments:
             best_segment = max(potential.roof_segments, key=lambda s: s.yearly_energy_kwh)
             props["google_solar_best_azimuth"] = best_segment.azimuth_degrees
             props["google_solar_best_pitch"] = best_segment.pitch_degrees
             props["google_solar_best_orientation"] = best_segment.orientation_name
+            props["google_solar_best_segment_panels"] = best_segment.panels_count
+            props["google_solar_best_segment_area"] = best_segment.area_m2
+            
+            # Verschattungsinfo für bestes Segment
+            props["google_solar_shading_factor"] = round(best_segment.shading_factor, 2)
+        
+        # NEU: Alle Segmente mit Details speichern
+        segments_detail = []
+        for seg in potential.roof_segments:
+            segments_detail.append({
+                "idx": seg.segment_index,
+                "lat": round(seg.center_lat, 6),
+                "lon": round(seg.center_lon, 6),
+                "azimuth": round(seg.azimuth_degrees, 1),
+                "pitch": round(seg.pitch_degrees, 1),
+                "area_m2": round(seg.area_m2, 1),
+                "panels": seg.panels_count,
+                "yearly_kwh": round(seg.yearly_energy_kwh, 0),
+                "orientation": seg.orientation_name,
+                "shading": round(seg.shading_factor, 2),
+                "sunshine_min": round(seg.sunshine_hours_min, 0),
+                "sunshine_max": round(seg.sunshine_hours_max, 0),
+            })
+        props["google_solar_segments"] = segments_detail
+        
+        # NEU: Panel-Konfigurationen (für Angebotsvarianten)
+        if potential.solar_panel_configs:
+            props["google_solar_configs"] = potential.solar_panel_configs[:5]  # Top 5 Configs
         
         return building
 
