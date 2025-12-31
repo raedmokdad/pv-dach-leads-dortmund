@@ -234,7 +234,7 @@ CITY_NAME = "Dortmund"       # Stadt
    - Follow-up-Automation
    - Conversion-Analytics
 
-##  Technologie-Stack
+## s Technologie-Stack
 
 - **Python 3.11+**
 - **GeoPandas** (räumliche Operationen)

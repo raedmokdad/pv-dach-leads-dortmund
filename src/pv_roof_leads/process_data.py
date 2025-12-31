@@ -165,7 +165,7 @@ def assign_cadastral_data(buildings: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     
     # Bei mehreren Matches: erstes Flurstück nehmen
     if 'index_right' in joined.columns:
-        joined = joined[~joined.index.duplicated(keep='first')]  # <- FIXED
+        joined = joined[~joined.index.duplicated(keep='first')]  
         joined = joined.drop(columns=['index_right'])
     
     # Sicherstellen dass Spalten existieren (auch wenn keine Matches)

@@ -34,10 +34,8 @@ try:
     ox.settings.max_query_area_size = 5_000_000_000  # 500 km²
     ox.settings.use_cache = True
     
-    print("✓ OSMnx geladen (Timeout: 900s)")
-    
 except ImportError:
-    print("❌ OSMnx nicht installiert!")
+    print("  OSMnx nicht installiert!")
     print("   Installiere mit: pip install osmnx")
     raise
 
