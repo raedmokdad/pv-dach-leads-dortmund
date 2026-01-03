@@ -1,59 +1,72 @@
 """
-Flächenfilter: Filtert Gebäude nach Mindest-Dachfläche (≥500m²)
-Fügt Spalte footprint_area_m2 hinzu
+Flächenfilter: Filtert ALKIS-Gebäude nach Mindest-Dachfläche (≥500m²)
+OPTIMIERT: Wird VOR process_data.py ausgeführt für schnellere Joins
 """
 
 import geopandas as gpd
 from pathlib import Path
 import argparse
 
-from pv_roof_leads.paths import STAGING_DORTMUND, CURATED_DORTMUND
+from pv_roof_leads.paths import STAGING_DORTMUND, PROCESSED_DORTMUND
 from pv_roof_leads.config import MIN_FOOTPRINT_AREA_M2, CRS_INTERNAL
 
 def filter_by_area(min_area_m2: float = MIN_FOOTPRINT_AREA_M2) -> Path:
-    """ Filtert nach mindesfläche und fügt footprint_area_m2 Spalte hinzu"""
+    """
+    Filtert ALKIS-Gebäude nach Mindestfläche (≥500m²).
+    WICHTIG: Muss VOR process_data.py ausgeführt werden!
+    """
     
-    # Geoparquet file ladem
+    # ALKIS-Gebäude laden (normalisiert)
     input_path = STAGING_DORTMUND / "buildings.geoparquet"
-    print(f" Lade Gebäude von {input_path}")
-    gdf = gpd.read_parquet(input_path)
-    print(f"{len(gdf)} Gebäude geladen")
-    #print(f"CRS {gdf.crs}")
+    print(f"📂 Lade ALKIS-Gebäude von {input_path}")
     
-    # Prüfen oc crs Metrisch ist
+    if not input_path.exists():
+        raise FileNotFoundError(f"ALKIS-Daten nicht gefunden! Führe zuerst 'normalize_alkis.py' aus.")
+    
+    gdf = gpd.read_parquet(input_path)
+    print(f"✓ {len(gdf):,} ALKIS-Gebäude geladen")
+    
+    # Prüfen ob CRS metrisch ist
     if gdf.crs != CRS_INTERNAL:
-        print(f"CRS ist nicht metrisch! Reprojiziere nach {CRS_INTERNAL}")
+        print(f"⚠️  CRS ist nicht metrisch! Reprojiziere nach {CRS_INTERNAL}")
         gdf = gdf.to_crs(CRS_INTERNAL)
     else:
-        print(f"CRS ist metrisch ({CRS_INTERNAL})")
-        
-    # Dachfläche berechnen in m2
-    print("Berechne Gebäudeflächen ...")
-    gdf["footprint_area_m2"] = gdf.geometry.area
-    print("Flächenberechnung abgeschlossen.")
-    print(f"Min: {gdf["footprint_area_m2"].min():.1f} m2")
-    print(f"Max: {gdf["footprint_area_m2"].max():.1f} m2")
+        print(f"✓ CRS ist metrisch ({CRS_INTERNAL})")
     
-    # Filtern nach mindesfläche
-    print(f"Nur Gebäude >= {min_area_m2} m²...")
+    # Fläche berechnen (falls nicht vorhanden)
+    if 'area_m2' not in gdf.columns:
+        print("🔢 Berechne Gebäudeflächen aus Geometrie...")
+        gdf['area_m2'] = gdf.geometry.area
+    
+    print(f"\n📊 Flächenverteilung:")
+    print(f"   Min: {gdf['area_m2'].min():.1f} m²")
+    print(f"   Max: {gdf['area_m2'].max():.1f} m²")
+    print(f"   Median: {gdf['area_m2'].median():.1f} m²")
+    
+    # Filtern nach Mindestfläche
+    print(f"\n🎯 Filtere Gebäude >= {min_area_m2} m²...")
     vor_filter = len(gdf)
-    gdf = gdf[gdf['footprint_area_m2'] >= min_area_m2]
+    gdf = gdf[gdf['area_m2'] >= min_area_m2].copy()
     nach_filter = len(gdf)
     
     ausgeschlossen = vor_filter - nach_filter
-    print(f"{nach_filter} Gebäude behalten")
-    print(f"{ausgeschlossen} Gebäude ausgeschlossen ({ausgeschlossen/vor_filter*100:.1f}%)")
+    print(f"✓ {nach_filter:,} Gebäude behalten")
+    print(f"✗ {ausgeschlossen:,} Gebäude ausgeschlossen ({ausgeschlossen/vor_filter*100:.1f}%)")
     
-    # Als Parquet speichern - ohne Geometrien
-    output_path = CURATED_DORTMUND / "candidates_area.parquet"
+    # Index zurücksetzen für spätere Joins
+    gdf = gdf.reset_index(drop=True)
+    
+    # Als GeoParquet speichern (mit Geometrie für process_data.py)
+    output_path = STAGING_DORTMUND / "buildings_filtered_area.geoparquet"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
-    print(f"Speichere nach {output_path}")
-    gdf_output = gdf.drop(columns=['geometry'])
-    gdf_output.to_parquet(output_path)   
+    print(f"\n💾 Speichere gefilterte Gebäude...")
+    gdf.to_parquet(output_path)
     
     file_size_mb = output_path.stat().st_size / (1024 * 1024)
-    print(f"Fertig! {nach_filter} Kandidaten, {file_size_mb:.1f} MB gespeichert")
+    print(f"✅ Gespeichert: {output_path}")
+    print(f"   {nach_filter:,} Gebäude, {file_size_mb:.1f} MB")
+    print(f"\n🚀 Bereit für process_data.py (Joins mit OSM-Daten)")
     
     return output_path
 

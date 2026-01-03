@@ -1,11 +1,11 @@
 {
-  "name": "pv-dach-leads-report",
+  "name": "dortmund-pv-analysis",
   "version": "1.0.0",
-  "description": "PV-Dach Leads Report für Dortmund",
+  "description": "Interactive PV potential analysis for Dortmund buildings - Railway deployment",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "npx serve"
+    "dev": "node server.js"
   },
   "dependencies": {
     "express": "^4.18.2",
@@ -13,5 +13,12 @@
   },
   "engines": {
     "node": ">=18.0.0"
-  }
+  },
+  "keywords": [
+    "solar",
+    "pv",
+    "dortmund",
+    "renewable-energy",
+    "analysis"
+  ]
 }

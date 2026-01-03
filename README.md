@@ -1,262 +1,335 @@
-# PV-Dach-Leads Dortmund
+# PV-Dach Leads Dortmund
 
-##  Projektziel
+**Automatisierte Lead-Generierung für PV-Anlagen auf Basis von Gebäudedaten, Google Solar API und KI-Analyse**
 
-Systematische Identifikation der **Top 500 Gewerbe- und Industriedächer in Dortmund** mit dem größten Potenzial für Photovoltaik-Anlagen.
+## 📋 Projektübersicht
 
-### Priorisierungskriterien
-1. **Große Dachflächen** (≥ 500 m²)
-2. **Zielgruppen:**
-   - Gewerbe- und Industriegebäude
-   - Soziale Einrichtungen (Pflegeheime, Bildungseinrichtungen)
-   - Einzelhandel und Logistik
-3. **Standortqualität** (Landnutzungszonen)
+Dieses Projekt analysiert Gebäude in Dortmund auf ihre Eignung für Photovoltaik-Anlagen. Es kombiniert:
 
-###  Outputs
-- ✅ **Excel-Dateien:** `dortmund_top500_leads.xlsx` & `dortmund_top200_leads.xlsx`
-- ✅ **PDF-Report:** Professioneller Report mit Luftbildern und Lead-Cards
-- ✅ **HTML-Report:** Interaktive Web-Ansicht mit Filterfunktionen
-- ✅ **Interaktive Karten:** Polygon-Karten mit Prioritätsvisualisierung
-- ✅ **Luftbilder:** Hochauflösende NRW-Orthophotos pro Lead
-- ✅ **GeoJSON:** Für GIS-Software (QGIS/ArcGIS)
+- **ALKIS-Daten** (Katasteramt): Gebäudegeometrien, Adressen, Nutzungsarten
+- **Google Solar API**: Solarpotenzial, Dachneigung, Ausrichtung, Panel-Kapazität
+- **Gemini Vision AI**: Dachmaterial, Zustand, Hindernisse aus Luftbildern
+- **MaStR-Daten**: Bestehende PV-Anlagen
 
-##  Scope
+---
 
-- **Stadt:** Dortmund
-- **Leads:** Top 500 (exportierbar auch Top 200)
-- **Mindestfläche:** 500 m²
-- **Koordinatensystem intern:** EPSG:25832 (UTM Zone 32N, metrisch)
-- **Export-Koordinatensystem:** EPSG:4326 (WGS84, Lat/Lon)
-
-
-##  Datenquellen
-
-### 1. ALKIS-Gebäudedaten (Stadt Dortmund)
-- **Quelle:** [Open Data Dortmund](https://open-data.dortmund.de/explore/dataset/liegenschaftskataster-gebaude-bauwerke/)
-- **WFS-Service:** `https://geoweb1.digistadtdo.de/doris_gdi/geoserver/ALKIS_ADV/wfs`
-- **Inhalt:** Präzise Gebäudegeometrien (amtliche Katasterdaten)
-- **Verwendung:** Flächenberechnung und räumliche Filterung
-- **Lizenz:** Datenlizenz Deutschland – Zero
-
-### 2. OpenStreetMap (OSM)
-- **Quelle:** Overpass API via [OSMnx](https://osmnx.readthedocs.io/)
-- **Endpoint:** `https://overpass-api.de/api/interpreter`
-- **Inhalt:**
-  - Landnutzungszonen (industrial, commercial)
-  - Points of Interest (POIs): Pflegeheime, Schulen, etc.
-  - Gebäudetags und Adressen
-- **Verwendung:** Zielgruppenfilterung und Kontaktdaten
-- **Lizenz:** ODbL (Open Database License)
-
-### 3. NRW-Luftbilder
-- **Quelle:** WMS-Dienst NRW Geobasis (Digitale Orthophotos)
-- **Service:** `https://www.wms.nrw.de/geobasis/wms_nw_dop`
-- **Verwendung:** Hochauflösende Luftbilder für visuelle Dokumentation
-- **Lizenz:** Datenlizenz Deutschland – dl-de/by-2-0
-
-**Fallback-Quellen:**
-- NRW-weit: [Open.NRW ALKIS-Daten](https://open.nrw/dataset/407373a2-422c-469c-a7e9-06a62b4d7d9a)
-- OSM Offline: [Geofabrik NRW-Extracts](https://download.geofabrik.de/europe/germany/nordrhein-westfalen.html)
-
-
-##  Datenverarbeitungs-Pipeline
-
-### Phase 1: Datenakquise
-**Module:** `acquire_osm.py`
-- Lädt OSM-Daten für Dortmund (Landnutzungszonen, Gebäude, POIs)
-- Output: `data/raw/dortmund/osm/*.geojson`
-
-### Phase 2: Datenverarbeitung
-**Module:** `process_data.py`, `normalize_alkis.py`
-1. ALKIS-Import und Normalisierung
-2. Projektion nach EPSG:25832 (metrische Flächenberechnung)
-3. Zonenzuordnung (Spatial Join mit Landnutzungszonen)
-4. Koordinatenextraktion (Zentroid-Berechnung)
-- Output: `data/processed/dortmund/buildings_processed.geojson`
-
-### Phase 3: Filterung
-**Module:** `filter_area.py`, `filter_target.py`
-1. **Größenfilter:** Nur Gebäude ≥ 500 m²
-2. **Zielgruppenfilter:**
-   - ✅ Industrial/Commercial Zonen
-   - ✅ Pflegeheime, Sozialeinrichtungen
-   - ✅ Bildungseinrichtungen, Sportstätten
-   - ✅ Einzelhandel, Logistik
-   - ❌ Krankenhäuser (ausgeschlossen)
-- Output: `data/staging/dortmund/target_buildings.geojson`
-
-### Phase 4: Scoring & Priorisierung
-**Module:** `score_leads.py`
-- **Scoring-System (0-100 Punkte):**
-  - 60% Dachfläche (lineare Skalierung 500-5000 m²)
-  - 40% Standortqualität (Zone + POI-Typ)
-- **Prioritätsklassen:**
-  - 🔴 A-Leads (≥75): Beste Prospects
-  - 🟠 B-Leads (55-74): Gute Potenziale
-  - 🟢 C-Leads (<55): Reserveliste
-- Output: `data/staging/dortmund/scored_buildings.geojson`
-
-### Phase 5: Export & Visualisierung
-**Module:** `export_leads.py`, `download_aerial_images.py`, `create_html_report.py`
-1. **Excel-Export:** Top 500/200 mit Ranking, Scores, Koordinaten, Links
-2. **Luftbilder:** NRW WMS-Download (800x600px pro Gebäude)
-3. **Karten:** Interaktive Folium-Karten mit Popups
-4. **PDF-Report:** Professionelles Layout mit Lead-Cards
-5. **HTML-Report:** Responsive Web-Ansicht mit Filterfunktion
-- Output: `data/final/dortmund/*`
-
-
-## Projektstruktur
+## 📁 Projektstruktur
 
 ```
 pv-dach-leads-dortmund/
-├── src/pv_roof_leads/              # Python-Module
-│   ├── acquire_osm.py              # OSM-Datenakquise
-│   ├── normalize_alkis.py          # ALKIS-Normalisierung
-│   ├── process_data.py             # Hauptverarbeitung
-│   ├── filter_area.py              # Größenfilter
-│   ├── filter_target.py            # Zielgruppenfilter
-│   ├── score_leads.py              # Scoring-Algorithmus
-│   ├── export_leads.py             # Excel/GeoJSON-Export
-│   ├── download_aerial_images.py   # Luftbilder-Download
-│   ├── create_html_report.py       # HTML-Report-Generierung
-│   ├── enrich_solar_potential.py   # Google Solar API (vorbereitet)
-│   ├── config.py                   # Zentrale Konfiguration
-│   └── paths.py                    # Pfad-Management
-├── data/
-│   ├── raw/dortmund/               # Rohdaten (OSM, ALKIS)
-│   ├── processed/dortmund/         # Verarbeitete Daten
-│   ├── staging/dortmund/           # Zwischenergebnisse
-│   └── final/dortmund/             # Finale Outputs
-│       ├── dortmund_top500_leads.xlsx
-│       ├── dortmund_top200_leads.xlsx
-│       ├── dortmund_leads_report_top500.pdf
-│       ├── dortmund_leads_report_top500.html
-│       ├── dortmund_roofs_map.html
-│       └── luftbilder/             # 500 Luftbilder
-├── cache/                          # API-Response-Cache
-├── create_pdf_report.py            # PDF-Generierung (Hauptskript)
-├── create_roof_map.py              # Polygon-Karte (Hauptskript)
-├── requirements.txt                # Python-Dependencies
-├── pyproject.toml                  # Projekt-Metadaten
-└── README.md                       # Diese Datei
+│
+├── src/pv_roof_leads/          # Haupt-Python-Module
+├── data/                        # Alle Daten (roh, verarbeitet, final)
+├── deploy/                      # Railway Deployment
+├── docs/                        # Dokumentation
+├── notebooks/                   # Jupyter Notebooks
+└── requirements.txt             # Python-Abhängigkeiten
 ```
 
-**Hinweis:** Dateien in `data/` sind nicht im Git-Repository (`.gitignore`).
+---
 
-##  Quickstart
+## 🐍 Python-Module (`src/pv_roof_leads/`)
 
-### Installation
+### Kernmodule
+
+| Datei | Beschreibung | Erzeugt |
+|-------|--------------|---------|
+| `paths.py` | Pfad-Definitionen für alle Ordner | - |
+| `config.py` | Konfiguration (API-Keys, Parameter) | - |
+| `normalize_alkis.py` | Normalisiert ALKIS-Gebäudedaten | `buildings_processed.geojson` |
+| `acquire_osm.py` | Lädt OSM-Daten herunter | `data/raw/dortmund/osm/` |
+| `extract_osm_pv.py` | Extrahiert PV-Anlagen aus OSM | `osm_pv_installations.geojson` |
+| `check_existing_pv.py` | Prüft bestehende PV-Anlagen (MaStR) | `buildings_processed_with_pv_info.geojson` |
+| `filter_area.py` | Filtert Gebäude nach Fläche | `buildings_processed_no_pv.geojson` |
+| `filter_target.py` | Filtert nach Zielkriterien | `buildings_report_filtered.geojson` |
+
+### Google Solar API
+
+| Datei | Beschreibung | Erzeugt |
+|-------|--------------|---------|
+| `enrich_with_google_solar.py` | Ruft Google Solar API ab | `buildings_with_google_solar.geojson`, `google_solar_cache/` |
+| `download_aerial_images.py` | Lädt Luftbilder herunter | `data/final/dortmund/luftbilder/` |
+
+### KI-Analyse
+
+| Datei | Beschreibung | Erzeugt |
+|-------|--------------|---------|
+| `analyze_roof_with_gemini.py` | Gemini Vision AI Dachanalyse | `gemini_roof_analysis.json` |
+
+### Report-Generierung
+
+| Datei | Beschreibung | Erzeugt |
+|-------|--------------|---------|
+| `create_complete_report.py` | **Haupt-Report** mit allen Daten | `complete_buildings_report.html` |
+| `create_filtered_report.py` | Gefilterter Report | `buildings_report_filtered.html` |
+| `export_to_excel.py` | Excel-Export | `dortmund_top500_leads.xlsx` |
+| `export_leads.py` | Lead-Export | Verschiedene Formate |
+
+### Wirtschaftlichkeit
+
+| Datei | Beschreibung | Erzeugt |
+|-------|--------------|---------|
+| `economic_calculator.py` | ROI, Amortisation berechnen | `buildings_with_economics.geojson` |
+
+---
+
+## 📂 Datenstruktur
+
+### `data/raw/dortmund/` - Rohdaten (Quellen)
+
+| Datei/Ordner | Beschreibung | Quelle |
+|--------------|--------------|--------|
+| `alkis_buildings/` | ALKIS Gebäude-Shapefiles | Katasteramt NRW |
+| `mastr_pv.csv` | Bestehende PV-Anlagen | Marktstammdatenregister |
+| `osm/` | OpenStreetMap Daten | Overpass API |
+| `osm_pv_installations.geojson` | PV aus OSM | `extract_osm_pv.py` |
+
+### `data/processed/dortmund/` - Verarbeitete Daten
+
+| Datei | Beschreibung | Erzeugt von |
+|-------|--------------|-------------|
+| `buildings_processed.geojson` | Normalisierte ALKIS-Daten | `normalize_alkis.py` |
+| `buildings_processed_no_pv.geojson` | Ohne bestehende PV | `filter_area.py` |
+| `buildings_processed_with_pv_info.geojson` | Mit PV-Status | `check_existing_pv.py` |
+| `buildings_with_google_solar.geojson` | **Mit Google Solar Daten** ⭐ | `enrich_with_google_solar.py` |
+| `buildings_with_economics.geojson` | Mit Wirtschaftlichkeit | `economic_calculator.py` |
+| `google_solar_cache/` | 5.201 API-Response Cache | `enrich_with_google_solar.py` |
+| `roof_segments_summary.json` | Dachsegment-Statistiken | `enrich_with_google_solar.py` |
+
+### `data/final/dortmund/` - Finale Ergebnisse
+
+| Datei/Ordner | Beschreibung | Erzeugt von |
+|--------------|--------------|-------------|
+| `luftbilder/` | 5.170 Luftbilder (JPEG) | `download_aerial_images.py` |
+| `luftbilder_mit_panels/` | 4.758 Bilder mit PV-Panels | `draw_panels_v2.py` (Einmal-Skript) |
+| `gemini_roof_analysis.json` | KI-Analyse aller Dächer | `analyze_roof_with_gemini.py` |
+| `complete_buildings_report.html` | **Haupt-Report (HTML)** ⭐ | `create_complete_report.py` |
+| `all_buildings_with_solar.geojson` | Kombinierte Daten (veraltet) | - |
+| `dortmund_top500_leads.xlsx` | Top 500 Leads (Excel) | `export_to_excel.py` |
+| `statistics.json` | Projekt-Statistiken | `create_complete_report.py` |
+
+---
+
+## 🚀 Ausführungsreihenfolge
+
+### 1. Umgebung einrichten
 
 ```bash
-# Python-Umgebung erstellen
+# Virtual Environment erstellen
 python -m venv .venv
+.venv\Scripts\activate  # Windows
 
-# Umgebung aktivieren (Windows)
-.venv\Scripts\activate
-
-# Dependencies installieren
+# Abhängigkeiten installieren
 pip install -r requirements.txt
+
+# .env Datei erstellen (API-Keys)
+copy .env.example .env
+# Dann GOOGLE_API_KEY und GEMINI_API_KEY eintragen
 ```
 
-### Pipeline ausführen
+### 2. Daten verarbeiten (Pipeline)
 
 ```bash
-# Gesamte Pipeline (in Reihenfolge)
-python -m pv_roof_leads.acquire_osm           # 1. OSM-Daten laden
-python -m pv_roof_leads.process_data          # 2. Daten verarbeiten
-python -m pv_roof_leads.filter_target         # 3. Zielgruppen filtern
-python -m pv_roof_leads.score_leads           # 4. Scoring durchführen
-python -m pv_roof_leads.export_leads          # 5. Excel/Karten exportieren
-python -m pv_roof_leads.download_aerial_images # 6. Luftbilder laden
-python create_pdf_report.py                   # 7. PDF generieren
-python -m pv_roof_leads.create_html_report    # 8. HTML-Report erstellen
+# Schritt 1: ALKIS-Daten normalisieren
+python -m src.pv_roof_leads.normalize_alkis
+
+# Schritt 2: OSM-Daten laden
+python -m src.pv_roof_leads.acquire_osm
+python -m src.pv_roof_leads.extract_osm_pv
+
+# Schritt 3: Bestehende PV-Anlagen prüfen
+python -m src.pv_roof_leads.check_existing_pv
+
+# Schritt 4: Nach Fläche filtern
+python -m src.pv_roof_leads.filter_area
+
+# Schritt 5: Google Solar API abrufen (benötigt API-Key!)
+python -m src.pv_roof_leads.enrich_with_google_solar
+
+# Schritt 6: Luftbilder herunterladen
+python -m src.pv_roof_leads.download_aerial_images
+
+# Schritt 7: KI-Analyse mit Gemini (benötigt API-Key!)
+python -m src.pv_roof_leads.analyze_roof_with_gemini
 ```
 
-### Konfiguration anpassen
+### 3. Report generieren
 
-Zentrale Parameter in `src/pv_roof_leads/config.py`:
+```bash
+# Haupt-Report erstellen
+python -m src.pv_roof_leads.create_complete_report
+
+# Excel-Export
+python -m src.pv_roof_leads.export_to_excel
+```
+
+### 4. Deployment
+
+```bash
+# Report in deploy-Ordner kopieren
+copy data\final\dortmund\complete_buildings_report.html deploy\index.html
+
+# Zu GitHub pushen
+cd deploy
+git add .
+git commit -m "Update Report"
+git push origin main
+```
+
+---
+
+## 📊 Datenfluss-Diagramm
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│  ALKIS (NRW)    │    │  MaStR (Bund)   │    │  OSM (Online)   │
+│  Katasterdaten  │    │  PV-Register    │    │  Gebäude/PV     │
+└────────┬────────┘    └────────┬────────┘    └────────┬────────┘
+         │                      │                      │
+         ▼                      ▼                      ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    normalize_alkis.py                            │
+│                    check_existing_pv.py                          │
+│                    extract_osm_pv.py                             │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+                ┌────────────────────────┐
+                │  buildings_processed   │
+                │      .geojson          │
+                └───────────┬────────────┘
+                            │
+                            ▼
+         ┌──────────────────────────────────────┐
+         │      enrich_with_google_solar.py     │
+         │      (Google Solar API)              │
+         └──────────────────┬───────────────────┘
+                            │
+              ┌─────────────┼─────────────┐
+              ▼             ▼             ▼
+┌──────────────────┐ ┌─────────────┐ ┌──────────────┐
+│ buildings_with_  │ │ google_     │ │ Luftbilder   │
+│ google_solar     │ │ solar_cache │ │ (5.170 JPG)  │
+│ .geojson ⭐      │ │ (5.201 JSON)│ │              │
+└────────┬─────────┘ └─────────────┘ └──────┬───────┘
+         │                                   │
+         │                                   ▼
+         │                    ┌──────────────────────────┐
+         │                    │ analyze_roof_with_gemini │
+         │                    │ (Gemini Vision AI)       │
+         │                    └────────────┬─────────────┘
+         │                                 │
+         │                                 ▼
+         │                    ┌──────────────────────────┐
+         │                    │ gemini_roof_analysis     │
+         │                    │ .json (5.170 Analysen)   │
+         │                    └────────────┬─────────────┘
+         │                                 │
+         └────────────────┬────────────────┘
+                          │
+                          ▼
+              ┌───────────────────────┐
+              │ create_complete_      │
+              │ report.py             │
+              └───────────┬───────────┘
+                          │
+                          ▼
+              ┌───────────────────────┐
+              │ complete_buildings_   │
+              │ report.html ⭐        │
+              └───────────────────────┘
+```
+
+---
+
+## 🔑 API-Keys
+
+Die folgenden API-Keys werden benötigt (in `.env` Datei):
+
+| Variable | Beschreibung | Wo bekommen? |
+|----------|--------------|--------------|
+| `GOOGLE_API_KEY` | Google Solar API | [Google Cloud Console](https://console.cloud.google.com/) |
+| `GEMINI_API_KEY` | Gemini Vision AI | [Google AI Studio](https://makersuite.google.com/) |
+
+**Beispiel `.env`:**
+```
+GOOGLE_API_KEY=AIzaSy...
+GEMINI_API_KEY=AIzaSy...
+```
+
+---
+
+## 📈 Statistiken (Stand: Januar 2026)
+
+| Metrik | Wert |
+|--------|------|
+| Gebäude analysiert | 5.201 |
+| Luftbilder | 5.170 |
+| Gemini-Analysen | 5.170 |
+| Bilder mit PV-Panels | 4.758 |
+| Panels gezeichnet | 3.123.437 |
+
+---
+
+## 🌐 Deployment
+
+Der Report ist auf Railway deployed:
+
+- **Repository:** https://github.com/raedmokdad/pv-dach-report-deploy
+- **Server:** Node.js Express (siehe `deploy/server.js`)
+
+### Deploy-Struktur
+
+```
+deploy/
+├── index.html              # Haupt-Report (Kopie von complete_buildings_report.html)
+├── server.js               # Express Server
+├── package.json            # Node.js Abhängigkeiten
+├── luftbilder/             # Original-Luftbilder (5.170)
+└── luftbilder_mit_panels/  # Bilder mit PV-Visualisierung (4.758)
+```
+
+---
+
+## ⚠️ Wichtige Hinweise
+
+### Korrekte Datenquelle
+
+**Immer verwenden:** `data/processed/dortmund/buildings_with_google_solar.geojson`
+
+Diese Datei enthält die korrekten, unveränderten Google Solar API Daten. Das Verhältnis von Grundfläche zu Dachfläche sollte etwa 1:1 sein.
+
+### Cache
+
+Google Solar API Responses werden in `google_solar_cache/` gecacht. Dies:
+- Spart API-Kosten bei erneutem Ausführen
+- Ermöglicht Offline-Zugriff auf API-Daten
+- Enthält alle Panel-Positionen für Visualisierung
+
+### Bilder
+
+Die Panel-Visualisierungen werden aus `solarPotential.solarPanels` in den Cache-Dateien generiert. Jede Cache-Datei enthält die exakten Lat/Lon-Koordinaten aller möglichen Panel-Positionen.
+
+---
+
+## 🧹 Aufräumen
+
+Temporäre Skripte wurden gelöscht. Falls Panel-Bilder neu generiert werden müssen:
+
 ```python
-MIN_FOOTPRINT_AREA_M2 = 500  # Mindestfläche
-EXPORT_TOPK = 500            # Anzahl exportierter Leads
-CRS_INTERNAL = "EPSG:25832"  # Koordinatensystem
-CITY_NAME = "Dortmund"       # Stadt
+# In Python ausführen:
+# 1. Cache-Dateien lesen
+# 2. Panel-Koordinaten aus solarPotential.solarPanels extrahieren
+# 3. Mit Bildname (building_X_LAT_LON.jpg) matchen
+# 4. Panels auf Bild zeichnen (3x2 Pixel, Farbe: rgba(25, 55, 110, 240))
 ```
 
-## 📈 Ergebnisse
+---
 
-### Statistiken
-- **Analysierte Gebäude:** >10.000
-- **Nach Größenfilter:** ~2.500 Gebäude ≥ 500 m²
-- **Top 500 Leads:** Priorisiert nach Score
-- **Durchschnittliche Dachfläche (Top 500):** ~1.850 m²
-- **Größte Dachfläche:** >10.000 m²
+## 📄 Lizenz
 
-### Prioritätsverteilung
-- 🔴 **A-Leads (~16%):** Logistikzentren, große Produktionshallen
-- 🟠 **B-Leads (~40%):** Einzelhandel, mittelgroße Gewerbe
-- 🟢 **C-Leads (~44%):** Bildungseinrichtungen, kleinere Betriebe
+Proprietär - Nur für interne Verwendung.
 
-### Typische Top-Leads
-- Logistikzentren und Distributionshallen
-- Produktionsbetriebe und Industrieanlagen
-- Shopping-Center und Baumärkte
-- Berufsschulen und Hochschulen
+---
 
-##  Zukünftige Erweiterungen
-
-1. **Google Solar API Integration**
-   - Präzise Sonneneinstrahlung (kWh/Jahr)
-   - 3D-Verschattungsanalyse
-   - Optimale Modulplatzierung
-   - Dachneigung und Ausrichtung
-
-2. **Energieverbrauchs-Datenintegration**
-   - Stromverbrauchsschätzung nach Gebäudetyp
-   - Smart-Meter-Datenanbindung
-   - Bestandsanlagen-Erkennung (Marktstammdatenregister)
-   - Repowering-Potenzial
-
-3. **KI-basierte Dachflächenanalyse**
-   - Computer Vision für Dachtyp-Erkennung
-   - Dachzustandsbewertung
-   - Hinderniserkennung (Gauben, Kamine)
-
-4. **Eigentümer-Recherche**
-   - Grundbuch-Integration
-   - Handelsregister-Daten
-   - Kontaktdaten-Anreicherung
-   - Entscheider-Identifikation
-
-5. **Automatisches Lead-Monitoring**
-   - CRM-Integration (Pipedrive, HubSpot)
-   - Status-Tracking
-   - Follow-up-Automation
-   - Conversion-Analytics
-
-## s Technologie-Stack
-
-- **Python 3.11+**
-- **GeoPandas** (räumliche Operationen)
-- **OSMnx** (OpenStreetMap-Integration)
-- **Folium** (interaktive Karten)
-- **ReportLab** (PDF-Generierung)
-- **Requests** (WMS-Luftbilder)
-
-## 📄 Lizenzierung & Datenschutz
-
-### Datenlizenzen
-- **ALKIS:** Datenlizenz Deutschland – Zero
-- **OSM:** ODbL (Open Database License)
-- **NRW-Luftbilder:** Datenlizenz Deutschland – dl-de/by-2-0
-
-### Datenschutz
-- ✅ Keine personenbezogenen Daten (nur Gebäude/Adressen)
-- ✅ Alle Datenquellen sind Open Data
-- ✅ DSGVO-konform (sensible Einrichtungen ausgeschlossen)
-
-## 📧 Kontakt
-
-Bei Fragen zur Implementierung oder für andere Städte:
-- **Projekt:** PV-Dach-Leads Generator
-- **Demo:** Öffnen Sie `data/final/dortmund/dortmund_leads_report_top500.html`
+*Letzte Aktualisierung: 2. Januar 2026*

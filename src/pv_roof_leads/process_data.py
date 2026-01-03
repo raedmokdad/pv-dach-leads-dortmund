@@ -10,33 +10,48 @@ import geopandas as gpd
 from pathlib import Path
 
 from pv_roof_leads.config import MIN_FOOTPRINT_AREA_M2, CRS_INTERNAL
-from pv_roof_leads.paths import RAW_DORTMUND, PROCESSED_DORTMUND
+from pv_roof_leads.paths import RAW_DORTMUND, PROCESSED_DORTMUND, STAGING_DORTMUND
 
-def load_latest_osm_data() -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame, gpd.GeoDataFrame]:
+def load_filtered_alkis_buildings() -> gpd.GeoDataFrame:
     """
-    Lädt die neuesten OSM-Daten aus dem RAW-Ordner.
+    Lädt gefilterte ALKIS-Gebäude (≥500m²) aus filter_area.py.
     
     Returns:
-        tuple: (landuse_zones, buildings, pois)
+        GeoDataFrame mit gefilterten Gebäuden
+    """
+    buildings_path = STAGING_DORTMUND / "buildings_filtered_area.geoparquet"
+    
+    if not buildings_path.exists():
+        raise FileNotFoundError(
+            f"Gefilterte Gebäude nicht gefunden: {buildings_path}\n"
+            f"Führe zuerst 'filter_area.py' aus!"
+        )
+    
+    print(f"📂 Lade gefilterte ALKIS-Gebäude: {buildings_path}")
+    buildings = gpd.read_parquet(buildings_path)
+    print(f"✓ {len(buildings):,} Gebäude geladen (bereits nach Fläche gefiltert)")
+    
+    return buildings
+
+
+def load_latest_osm_data() -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
+    """
+    Lädt die neuesten OSM-Daten (Zonen und Gebäude) aus dem RAW-Ordner.
+    
+    Returns:
+        tuple: (landuse_zones, osm_buildings)
     """
     # finde neusten Ordner
     osm_dir = RAW_DORTMUND / "osm"
     latest_dir = sorted(osm_dir.glob("*"))[-1]
     
-    print(f"Lade Daten aus: {latest_dir}")
+    print(f"📂 Lade OSM-Daten aus: {latest_dir}")
     
     zones = gpd.read_file(latest_dir / "landuse_zones.geojson")
-    buildings = gpd.read_file(latest_dir / "buildings.geojson")
+    osm_buildings = gpd.read_file(latest_dir / "buildings.geojson")
     
-    # POIs nur laden wenn vorhanden
-    pois_path = latest_dir / "pois.geojson"
-    if pois_path.exists():
-        pois = gpd.read_file(pois_path)
-    else:
-        pois = gpd.GeoDataFrame()
-    
-    print(f"{len(zones)} Zonen, {len(buildings)} Gebäude, {len(pois)} POIs")
-    return zones, buildings, pois
+    print(f"✓ {len(zones)} Zonen, {len(osm_buildings):,} OSM-Gebäude")
+    return zones, osm_buildings
 
 
 def calculate_foot_print_area(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
@@ -113,6 +128,82 @@ def assign_landuse_zone(buildings: gpd.GeoDataFrame, zones: gpd.GeoDataFrame) ->
     return joined
 
 
+def enrich_with_osm_attributes(alkis_buildings: gpd.GeoDataFrame, osm_buildings: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """
+    Fügt OSM-Gebäude-Attribute zu ALKIS-Gebäuden hinzu (für filter_target.py).
+    Matched ALKIS ← OSM per Spatial Join (intersects).
+    
+    Args:
+        alkis_buildings: GeoDataFrame mit ALKIS-Gebäuden (präzise Geometrien)
+        osm_buildings: GeoDataFrame mit OSM-Gebäuden (mit POI-Attributen)
+        
+    Returns:
+        GeoDataFrame mit amenity, leisure, shop, tourism, building Spalten
+    """
+    print("⏳ Reichere ALKIS-Gebäude mit OSM-Attributen an...")
+    print(f"   {len(alkis_buildings):,} ALKIS ← {len(osm_buildings):,} OSM-Gebäude")
+    
+    # CRS angleichen
+    if osm_buildings.crs != alkis_buildings.crs:
+        print(f"   Transformiere OSM: {osm_buildings.crs} → {alkis_buildings.crs}")
+        osm_buildings = osm_buildings.to_crs(alkis_buildings.crs)
+    
+    # OSM-Attribute die wir brauchen
+    osm_cols = ['amenity', 'leisure', 'shop', 'tourism', 'building']
+    available_cols = [c for c in osm_cols if c in osm_buildings.columns]
+    
+    if not available_cols:
+        print("⚠️  Keine OSM-Attribute gefunden - füge leere Spalten hinzu")
+        for col in osm_cols:
+            alkis_buildings[col] = None
+        return alkis_buildings
+    
+    print(f"   Verfügbare OSM-Attribute: {available_cols}")
+    
+    # Nur relevante OSM-Spalten + Geometrie
+    osm_simple = osm_buildings[['geometry'] + available_cols].copy()
+    
+    # WICHTIG: Original-Index speichern vor Join
+    alkis_buildings['_original_idx'] = alkis_buildings.index
+    
+    # Spatial Join: ALKIS ← OSM (left join, damit alle ALKIS behalten werden)
+    joined = gpd.sjoin(alkis_buildings, osm_simple, how='left', predicate='intersects', rsuffix='_osm')
+    
+    # Statistik VOR Duplikat-Entfernung
+    before_dedup = len(joined)
+    total_matches = joined['index_right'].notna().sum() if 'index_right' in joined.columns else 0
+    
+    # Bei mehreren OSM-Matches pro ALKIS: erstes nehmen (basierend auf Original-Index)
+    joined = joined.sort_values('_original_idx')  # Sortieren für konsistente Reihenfolge
+    joined = joined.drop_duplicates(subset='_original_idx', keep='first')
+    joined = joined.drop(columns=['_original_idx'])
+    
+    if 'index_right' in joined.columns:
+        joined = joined.drop(columns=['index_right'])
+    
+    # Statistik NACH Duplikat-Entfernung
+    after_dedup = len(joined)
+    duplicates_removed = before_dedup - after_dedup
+    
+    print(f"   ✓ {total_matches:,} ALKIS-OSM Übereinstimmungen")
+    print(f"   ✓ {duplicates_removed:,} Duplikate entfernt → {after_dedup:,} finale Gebäude")
+    
+    # Fehlende Spalten mit None füllen
+    for col in osm_cols:
+        if col not in joined.columns:
+            joined[col] = None
+    
+    # Statistik pro Attribut
+    print(f"   📊 Angereicherte Gebäude:")
+    for col in osm_cols:
+        if col in joined.columns:
+            count = joined[col].notna().sum()
+            pct = count / len(joined) * 100 if len(joined) > 0 else 0
+            print(f"      • {col}: {count:,} ({pct:.1f}%)")
+    
+    return joined
+
+
 def assign_cadastral_data(buildings: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
     Ordnet Gebäuden Flurstück-Informationen aus dem Liegenschaftskataster zu.
@@ -184,37 +275,35 @@ def assign_cadastral_data(buildings: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
 
 def process_osm_data() -> Path:
     """
-    Hauptfunktion Task 4.2: Lädt OSM-Daten, filtert, berechnet, verknüpft.
+    Hauptfunktion Task 4.2: Joined gefilterte ALKIS-Gebäude mit OSM-Daten.
+    OPTIMIERT: Arbeitet nur mit bereits gefilterten Gebäuden (≥500m²)
     
     Returns:
         Path: Pfad zur verarbeiteten buildings.geojson
     """
     print("=" * 60)
-    print("📊 Task 4.2: Data Processing")
+    print("📊 Task 4.2: Data Processing (OPTIMIERT)")
     print("=" * 60)
     
-    # 1. Daten laden
-    zones, buildings, pois = load_latest_osm_data()
+    # 1. Gefilterte ALKIS-Gebäude laden (≥500m², aus filter_area.py)
+    buildings = load_filtered_alkis_buildings()
     
-    # 2. Flächen berechnen
-    buildings = calculate_foot_print_area(buildings)
+    # 2. OSM-Daten laden (Zonen und Gebäude)
+    zones, osm_buildings = load_latest_osm_data()
     
-    # 3. Nach Mindestfläche filtern (≥ 500m²)
-    buildings = filter_by_area(buildings)
-    
-    # 4. Landuse-Zone zuordnen
+    # 3. Landuse-Zone zuordnen
     buildings = assign_landuse_zone(buildings, zones)
     
-    # 5. Flurstück-Daten zuordnen (für Eigentümer-Kontakt)  
-    buildings = assign_cadastral_data(buildings)              
+    # 4. OSM-Gebäude-Attribute hinzufügen (für filter_target.py)
+    buildings = enrich_with_osm_attributes(buildings, osm_buildings)
     
-    # 6. Speichern  
+    # 5. Speichern  
     output_path = PROCESSED_DORTMUND / "buildings_processed.geojson"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     buildings.to_file(output_path, driver="GeoJSON")
     
     print(f"\n✅ Processing abgeschlossen: {output_path}")
-    print(f"   {len(buildings)} Gebäude bereit für Scoring")
+    print(f"   {len(buildings):,} Gebäude bereit für Zielgruppenfilter")
     print(f"   In Zonen: {buildings['landuse'].notna().sum()}")
     
     return output_path
